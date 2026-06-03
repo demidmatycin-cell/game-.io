@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Неоновая Аркада - GameAI</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0a0a1e; font-family: 'Segoe UI', sans-serif; color: #fff; }
+        canvas { display: block; margin: 0 auto; background: #000; box-shadow: 0 0 50px rgba(0, 255, 136, 0.2); }
+        #ui { position: absolute; top: 20px; left: 20px; font-size: 24px; font-weight: bold; text-shadow: 0 0 10px #00ff88; pointer-events: none; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
+        .hidden { display: none !important; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; color: #ff00ff; text-shadow: 0 0 20px #ff00ff; text-transform: uppercase; }
+        button { padding: 1rem 3rem; font-size: 1.5rem; background: #ff00ff; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        button:hover { transform: scale(1.1); box-shadow: 0 0 30px #ff00ff; }
+    </style>
+</head>
+<body>
+    <div id="ui">SCORE: <span id="score">0</span> | LIVES: <span id="lives">3</span></div>
+    
+    <div id="startScreen" class="overlay">
+        <h1>Неоновая Аркада</h1>
+        <p>Управление: Мышь или Стрелки</p>
+        <button onclick="startGame()">Начать игру</button>
+    </div>
+
+    <div id="gameOverScreen" class="overlay hidden">
+        <h1>Game Over</h1>
+        <p>Твой счет: <span id="finalScore">0</span></p>
+        <button onclick="resetGame()">Играть снова</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 800; canvas.height = 600;
+
+        let gameRunning = false, score = 0, lives = 3;
+        let paddle = { x: 350, y: 560, w: 100, h: 15, speed: 8 };
+        let ball = { x: 400, y: 540, r: 8, vx: 5, vy: -5 };
+        let bricks = [], particles = [];
+        const keys = {};
+
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
+        canvas.addEventListener('mousemove', e => {
+            let rect = canvas.getBoundingClientRect();
+            paddle.x = e.clientX - rect.left - paddle.w/2;
+        });
+
+        function initBricks() {
+            bricks = [];
+            const rows = 5, cols = 10, w = 70, h = 25, padding = 10, offsetX = 35, offsetY = 50;
+            const colors = ['#ff0044', '#ff8800', '#ffff00', '#00ff88', '#00d4ff'];
+            
+            for(let r=0; r<rows; r++) {
+                for(let c=0; c<cols; c++) {
+                    bricks.push({
+                        x: offsetX + c*(w+padding),
+                        y: offsetY + r*(h+padding),
+                        w: w, h: h,
+                        color: colors[r],
+                        active: true
+                    });
+                }
+            }
+        }
+
+        function createParticles(x, y, color) {
+            for(let i=0; i<10; i++) {
+                particles.push({
+                    x: x, y: y,
+                    vx: (Math.random()-0.5)*8, vy: (Math.random()-0.5)*8,
+                    life: 20, color: color
+                });
+            }
+        }
+
+        function update() {
+            if(!gameRunning) return;
+
+            // Движение платформы (клавиатура)
+            if(keys['ArrowLeft'] && paddle.x > 0) paddle.x -= paddle.speed;
+            if(keys['ArrowRight'] && paddle.x < 700) paddle.x += paddle.speed;
+
+            // Движение мяча
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // Отскок от стен
+            if(ball.x < ball.r || ball.x > 800 - ball.r) ball.vx *= -1;
+            if(ball.y < ball.r) ball.vy *= -1;
+            
+            // Падение вниз
+            if(ball.y > 600) {
+                lives--;
+                document.getElementById('lives').innerText = lives;
+                if(lives <= 0) gameOver();
+                else { ball.x = 400; ball.y = 540; ball.vx = 5; ball.vy = -5; }
+            }
+
+            // Отскок от платформы
+            if(ball.y + ball.r > paddle.y && ball.y - ball.r < paddle.y + paddle.h &&
+               ball.x > paddle.x && ball.x < paddle.x + paddle.w && ball.vy > 0) {
+                ball.vy *= -1.05; // Ускорение
+                ball.vx += (ball.x - (paddle.x + paddle.w/2)) * 0.1;
+            }
+
+            // Столкновение с блоками
+            bricks.forEach(b => {
+                if(b.active && ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
+                    b.active = false;
+                    ball.vy *= -1;
+                    score += 10;
+                    document.getElementById('score').innerText = score;
+                    createParticles(b.x + b.w/2, b.y + b.h/2, b.color);
+                    
+                    // Проверка победы
+                    if(bricks.every(br => !br.active)) {
+                        score += 100;
+                        initBricks(); // Следующий уровень
+                    }
+                }
+            });
+
+            // Частицы
+            for(let i=particles.length-1; i>=0; i--) {
+                particles[i].x += particles[i].vx;
+                particles[i].y += particles[i].vy;
+                particles[i].life--;
+                if(particles[i].life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, 800, 600);
+
+            // Сетка на фоне
+            ctx.strokeStyle = '#111';
+            ctx.lineWidth = 1;
+            for(let i=0; i<800; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,600); ctx.stroke(); }
+            for(let i=0; i<600; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(800,i); ctx.stroke(); }
+
+            // Блоки
+            bricks.forEach(b => {
+                if(!b.active) return;
+                ctx.fillStyle = b.color;
+                ctx.shadowBlur = 15; ctx.shadowColor = b.color;
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+                ctx.shadowBlur = 0;
+            });
+
+            // Платформа
+            ctx.fillStyle = '#00ff88';
+            ctx.shadowBlur = 20; ctx.shadowColor = '#00ff88';
+            ctx.beginPath();
+            ctx.roundRect(paddle.x, paddle.y, paddle.w, paddle.h, 8);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Мяч
+            ctx.fillStyle = '#fff';
+            ctx.shadowBlur = 15; ctx.shadowColor = '#fff';
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Частицы
+            particles.forEach(p => {
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.life / 20;
+                ctx.fillRect(p.x, p.y, 4, 4);
+            });
+            ctx.globalAlpha = 1;
+        }
+
+        function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+        function startGame() {
+            document.getElementById('startScreen').classList.add('hidden');
+            gameRunning = true; score = 0; lives = 3;
+            initBricks();
+            ball.x = 400; ball.y = 540; ball.vx = 5; ball.vy = -5;
+            paddle.x = 350;
+            document.getElementById('score').innerText = '0';
+            document.getElementById('lives').innerText = '3';
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+        }
+
+        function resetGame() {
+            document.getElementById('gameOverScreen').classList.add('hidden');
+            startGame();
+        }
+
+        loop();
+    </script>
+</body>
+</html>

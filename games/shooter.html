@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Космический Шутер - GameAI</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #050510; font-family: 'Segoe UI', sans-serif; color: #fff; }
+        canvas { display: block; margin: 0 auto; background: #000; }
+        #ui { position: absolute; top: 20px; left: 20px; font-size: 20px; text-shadow: 0 0 10px #00d4ff; pointer-events: none; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
+        .hidden { display: none !important; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; color: #00d4ff; text-shadow: 0 0 20px #00d4ff; text-transform: uppercase; letter-spacing: 3px; }
+        p { font-size: 1.2rem; margin-bottom: 2rem; color: #aaa; }
+        button { padding: 1rem 3rem; font-size: 1.5rem; background: #00d4ff; color: #000; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; text-transform: uppercase; }
+        button:hover { transform: scale(1.1); box-shadow: 0 0 30px #00d4ff; }
+    </style>
+</head>
+<body>
+    <div id="ui">SCORE: <span id="score">0</span> | HP: <span id="hp">100</span></div>
+    
+    <div id="startScreen" class="overlay">
+        <h1>Космический Шутер</h1>
+        <p>Управление: Стрелки или WASD. Стрельба: Пробел</p>
+        <button onclick="startGame()">Начать игру</button>
+    </div>
+
+    <div id="gameOverScreen" class="overlay hidden">
+        <h1>Game Over</h1>
+        <p>Твой счет: <span id="finalScore">0</span></p>
+        <button onclick="resetGame()">Играть снова</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 800; canvas.height = 600;
+
+        let gameRunning = false, score = 0, hp = 100;
+        let player = { x: 400, y: 500, w: 40, h: 40, speed: 6 };
+        let bullets = [], enemies = [], particles = [], stars = [];
+        const keys = {};
+
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
+
+        // Инициализация звездного фона
+        for(let i=0; i<100; i++) {
+            stars.push({x: Math.random()*800, y: Math.random()*600, s: Math.random()*2, sp: Math.random()*3+1});
+        }
+
+        function drawShip(x, y, color, isPlayer) {
+            ctx.save();
+            ctx.translate(x, y);
+            // Корпус
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(0, isPlayer ? -20 : 20);
+            ctx.lineTo(-20, isPlayer ? 20 : -20);
+            ctx.lineTo(-10, isPlayer ? 10 : -10);
+            ctx.lineTo(10, isPlayer ? 10 : -10);
+            ctx.lineTo(20, isPlayer ? 20 : -20);
+            ctx.closePath();
+            ctx.fill();
+            // Кабина
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(0, isPlayer ? 0 : 0, 5, 0, Math.PI*2);
+            ctx.fill();
+            // Двигатель
+            if(isPlayer) {
+                ctx.fillStyle = '#ff8800';
+                ctx.beginPath();
+                ctx.moveTo(-8, 15); ctx.lineTo(8, 15); ctx.lineTo(0, 25 + Math.random()*10);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        function createExplosion(x, y, color) {
+            for(let i=0; i<15; i++) {
+                particles.push({
+                    x: x, y: y,
+                    vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10,
+                    life: 30, color: color, size: Math.random()*4+2
+                });
+            }
+        }
+
+        function update() {
+            if(!gameRunning) return;
+
+            // Движение игрока
+            if((keys['ArrowLeft'] || keys['a']) && player.x > 20) player.x -= player.speed;
+            if((keys['ArrowRight'] || keys['d']) && player.x < 780) player.x += player.speed;
+            if((keys['ArrowUp'] || keys['w']) && player.y > 20) player.y -= player.speed;
+            if((keys['ArrowDown'] || keys['s']) && player.y < 580) player.y += player.speed;
+
+            // Стрельба
+            if(keys[' '] && bullets.length < 5 && Math.random() < 0.3) {
+                bullets.push({x: player.x, y: player.y - 20, vy: -12});
+            }
+
+            // Спавн врагов
+            if(Math.random() < 0.03) {
+                enemies.push({x: Math.random()*760+20, y: -20, vy: Math.random()*2+2, hp: 2});
+            }
+
+            // Обновление пуль
+            for(let i=bullets.length-1; i>=0; i--) {
+                bullets[i].y += bullets[i].vy;
+                if(bullets[i].y < 0) bullets.splice(i, 1);
+            }
+
+            // Обновление врагов
+            for(let i=enemies.length-1; i>=0; i--) {
+                enemies[i].y += enemies[i].vy;
+                
+                // Столкновение пули с врагом
+                for(let j=bullets.length-1; j>=0; j--) {
+                    let dx = bullets[j].x - enemies[i].x;
+                    let dy = bullets[j].y - enemies[i].y;
+                    if(Math.sqrt(dx*dx + dy*dy) < 25) {
+                        enemies[i].hp--;
+                        bullets.splice(j, 1);
+                        if(enemies[i].hp <= 0) {
+                            createExplosion(enemies[i].x, enemies[i].y, '#ff0044');
+                            enemies.splice(i, 1);
+                            score += 10;
+                            document.getElementById('score').innerText = score;
+                        }
+                        break;
+                    }
+                }
+
+                // Столкновение врага с игроком
+                if(enemies[i]) {
+                    let dx = player.x - enemies[i].x;
+                    let dy = player.y - enemies[i].y;
+                    if(Math.sqrt(dx*dx + dy*dy) < 30) {
+                        createExplosion(enemies[i].x, enemies[i].y, '#ff0044');
+                        enemies.splice(i, 1);
+                        hp -= 20;
+                        document.getElementById('hp').innerText = hp;
+                        if(hp <= 0) gameOver();
+                    } else if(enemies[i].y > 620) {
+                        enemies.splice(i, 1);
+                    }
+                }
+            }
+
+            // Обновление частиц
+            for(let i=particles.length-1; i>=0; i--) {
+                particles[i].x += particles[i].vx;
+                particles[i].y += particles[i].vy;
+                particles[i].life--;
+                if(particles[i].life <= 0) particles.splice(i, 1);
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = '#050510';
+            ctx.fillRect(0, 0, 800, 600);
+
+            // Звезды
+            ctx.fillStyle = '#fff';
+            stars.forEach(s => {
+                s.y += s.sp;
+                if(s.y > 600) s.y = 0;
+                ctx.fillRect(s.x, s.y, s.s, s.s);
+            });
+
+            // Частицы
+            particles.forEach(p => {
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.life / 30;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            });
+            ctx.globalAlpha = 1;
+
+            // Игрок
+            drawShip(player.x, player.y, '#00d4ff', true);
+
+            // Пули
+            ctx.fillStyle = '#ffff00';
+            ctx.shadowBlur = 10; ctx.shadowColor = '#ffff00';
+            bullets.forEach(b => ctx.fillRect(b.x-2, b.y, 4, 15));
+            ctx.shadowBlur = 0;
+
+            // Враги
+            enemies.forEach(e => drawShip(e.x, e.y, '#ff0044', false));
+        }
+
+        function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+        function startGame() {
+            document.getElementById('startScreen').classList.add('hidden');
+            gameRunning = true; score = 0; hp = 100;
+            bullets = []; enemies = []; particles = [];
+            player.x = 400; player.y = 500;
+            document.getElementById('score').innerText = '0';
+            document.getElementById('hp').innerText = '100';
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+        }
+
+        function resetGame() {
+            document.getElementById('gameOverScreen').classList.add('hidden');
+            startGame();
+        }
+
+        loop();
+    </script>
+</body>
+</html>
